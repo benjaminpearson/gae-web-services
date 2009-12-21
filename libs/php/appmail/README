@@ -1,0 +1,25 @@
+AppMail
+
+A PHP library that allows interaction with an instance of AppMail hosted on Google App Engine. Designed to be used in PHP projects or as a CakePHP vendor.
+
+SOURCE
+----------------------------------------------------------------------------------------
+http://github.com/benjaminpearson/gae-web-services
+
+
+USAGE
+----------------------------------------------------------------------------------------
+
+CakePHP:
+App::import('Vendor', 'AppMailCore', array('file' => 'appmail'.DS.'appmail.core.php'));
+$AppMailCore = new AppMailCore();
+$AppMailCore->send("John Recipient <john.recipient@example.com>", "John Sender <john.sender@example.com>", "Subject", "Message");
+
+
+PHP:
+require_once "appmail".DIRECTORY_SEPARATOR."appmail.core.php";
+$AppMailCore = new AppMailCore();
+$AppMailCore->send("John Recipient <john.recipient@example.com>", "John Sender <john.sender@example.com>", "Subject", "Message");
+
+
+See test files for more examples.

@@ -1,0 +1,25 @@
+AppImage
+
+A PHP library that allows interaction with an instance of AppImage hosted on Google App Engine. Designed to be used in PHP projects or as a CakePHP vendor.
+
+SOURCE
+----------------------------------------------------------------------------------------
+http://github.com/benjaminpearson/gae-web-services
+
+
+USAGE
+----------------------------------------------------------------------------------------
+
+CakePHP:
+App::import('Vendor', 'AppImageCore', array('file' => 'appimage'.DS.'appimage.core.php'));
+$AppImageCore = new AppImageCore();
+$AppImageCore->upload('avatar', $_FILES['tmp_name'], 'johnsmith');
+
+
+PHP:
+require_once "appimage".DIRECTORY_SEPARATOR."appimage.core.php";
+$AppImageCore = new AppImageCore();
+$AppImageCore->upload('avatar', $_FILES['tmp_name'], 'johnsmith');
+
+
+See test files for more examples.

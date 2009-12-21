@@ -1,0 +1,35 @@
+About
+------------------------------------------------------
+A collection of Google App Engine web services for outsourcing common tasks for web applications to a larger service provider - in this case Google's App Engine infrastructure. Currently the collection includes an Email app and Image Manipulation app with PHP/CakePHP libraries for interacting with them.
+
+Current Web Services
+------------------------------------------------------
+AppImage - A Google App Engine app that allows you to store, view and manipulate images.
+AppMail - A Google App Engine app that simply allows you to send emails.
+
+Setup
+------------------------------------------------------
+If you haven't already change the name of the folders from "appimagedemo"/"appmaildemo" to the names of your GAE apps. You'll also need to modify app.yaml "application:" config variable to the same name.
+
+You'll need to set the "AUTH" constant in main.py to include your IP address and API Key. The API Key is just a random string, you just need to ensure that in your requests you pass the same random string to the App Methods that require it.
+
+Authentication
+------------------------------------------------------
+Both applications include an authentication aspect to stop others using the app, data, and bandwidth. The authentication works by requiring an API Key to be passed when making requests to certain application methods. This API Key is then looked up in the "AUTH" dictionary in main.py which has a corresponding IP Address. If the requesters IP Address matches the one corresponding the API Key provided then the request will continue, if they don\'t match an exception is raised and the request is denied.
+
+Libraries
+------------------------------------------------------
+Currently a PHP library is included for both web services. These libraries were designed as CakePHP vendors but should work fine in any PHP project. It would be great to see some more libraries for other languages, so please feel free to contribute new libraries and/or modify the existing ones.
+
+References
+------------------------------------------------------
+For more info, check out the corresponding blog post at http://developinginthedark.com/posts/revving-with-google-app-engine
+
+AppImage is based on Appspotimage: http://code.google.com/p/appspotimage/
+They have an excellent tutorial and show how a Google App Engine app can be integrated with 3Scale (an SaaS API Management tool)
+
+Also check out Google's docs
+Google App Engine Mail Docs: http://code.google.com/appengine/docs/python/mail/sendingmail.html
+Google App Engine Image Docs: http://code.google.com/appengine/docs/python/images/imageclass.html
+Google App Engine Quotas Information: http://code.google.com/appengine/docs/quotas.html
+
