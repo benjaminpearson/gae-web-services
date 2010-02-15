@@ -58,6 +58,7 @@ class AppImageRest
 		$c = curl_init();
 		curl_setopt($c, CURLOPT_URL, $url);
 	 	curl_setopt($c, CURLOPT_POST, 1);
+		curl_setopt($c, CURLOPT_FOLLOWLOCATION, true); // has to be used for blobstore redirect on upload
 		curl_setopt($c, CURLOPT_SSL_VERIFYPEER, true);
 	 	curl_setopt($c, CURLOPT_POSTFIELDS, $data);
 		curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);

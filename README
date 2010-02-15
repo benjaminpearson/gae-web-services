@@ -1,3 +1,23 @@
+RELEASE HISTORY
+------------------------------------------------------------------------------------------------------------
+
+AppImage Version 2.0 - Released Feb 16th 2010
+------------------------------------------------------
+- GAE: Includes support for working with files larger than 1mb (using GAE Blobstore - Billing enabled accounts only)
+- GAE: XML now used in request responses making it easier to check success and failure
+- GAE: Examples added to illustrate storage of multiple thumbnail sizes
+- GAE: Logging added to make it easier to see how the application is running in GAE Dashboard (should be removed for production environments)
+- PHP: Upload method now requires a filesize argument to be passed (not backwards compatible with previous release)
+- PHP: REST helper POST method updated to follow redirections during CURL operation in order for Blobstore calls to work
+- PHP: XML helper added to read responses
+- PHP: Tests updated to include both a small and large image and assertions to check image md5 hashes
+
+Corresponding blog post: http://developinginthedark.com/posts/large-image-resizing-for-google-app-engine
+
+
+PROJECT DETAILS
+------------------------------------------------------------------------------------------------------------
+
 About
 ------------------------------------------------------
 A collection of Google App Engine web services for outsourcing common tasks for web applications to a larger service provider - in this case Google's App Engine infrastructure. Currently the collection includes an Email app and Image Manipulation app with PHP/CakePHP libraries for interacting with them.
@@ -24,6 +44,7 @@ Currently a PHP library is included for both web services. These libraries were 
 References
 ------------------------------------------------------
 For more info, check out the corresponding blog post at http://developinginthedark.com/posts/revving-with-google-app-engine
+Information about AppImage Version 2.0: http://developinginthedark.com/posts/appimage-updated-large-image-support-for-google-app-engine
 
 AppImage is based on Appspotimage: http://code.google.com/p/appspotimage/
 They have an excellent tutorial and show how a Google App Engine app can be integrated with 3Scale (an SaaS API Management tool)

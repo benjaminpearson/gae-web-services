@@ -31,12 +31,16 @@ from xml.dom.minidom import Document
 import exceptions
 import warnings
 import imghdr
+from google.appengine.ext import blobstore
 from google.appengine.api import images
 from google.appengine.api import users
+from google.appengine.api import urlfetch
 from google.appengine.ext import db
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
 from google.appengine.ext.webapp import template
+from google.appengine.ext.webapp import blobstore_handlers
+
 import wsgiref.handlers
 
 # START Constants
@@ -77,28 +81,43 @@ def imageExcpHandler(ctx):
 	try:
 		yield {}
 	except (images.LargeImageError, images.BadImageError, images.TransformationError), exc:
-		xml_error_response(ctx, 400 ,'app.invalid_image', 'The image provided is too big or corrupt: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'app.invalid_image', 'The image provided is too big or corrupt: ' + exc.message)
 	except (ImageNotFound), exc:
-		xml_error_response(ctx, 404 ,'app.not_found', 'The image requested has not been found: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'app.not_found', 'The image requested has not been found: ' + exc.message)
 	except (images.NotImageError), exc:
-		xml_error_response(ctx, 400 ,'app.invalid_encoding', 'The indicated encoding is not supported, valid encodings are PNG and JPEG: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'app.invalid_encoding', 'The indicated encoding is not supported, valid encodings are PNG and JPEG: ' + exc.message)
 	except (ValueError, images.BadRequestError), exc:
-		xml_error_response(ctx, 400 ,'app.invalid_parameters', 'The indicated parameters to manipulate the image are not valid: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'app.invalid_parameters', 'The indicated parameters to manipulate the image are not valid: ' + exc.message)
 	except (Forbidden), exc:
-		xml_error_response(ctx, 403 ,'app.forbidden', 'You don\'t have permission to perform this action: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'app.forbidden', 'You don\'t have permission to perform this action: ' + exc.message)
 	except (Exception), exc:
-		xml_error_response(ctx, 500 ,'system.other', 'An unexpected error in the web service has happened: ' + exc.message)
+		logging.error(exc.message)
+		xml_response(ctx, 'system.other', 'An unexpected error in the web service has happened: ' + exc.message)
 
-def xml_error_response(ctx, status, error_id, error_msg):
-	ctx.error(status)
+def xml_response(handle, response_status, response_msg):
 	doc = Document()
-	errorcard = doc.createElement("error")
-	errorcard.setAttribute("id", error_id)
-	doc.appendChild(errorcard)
-	ptext = doc.createTextNode(error_msg)
-	errorcard.appendChild(ptext)
-	ctx.response.headers[CONTENT_TYPE_HEADER] = XML_CONTENT_TYPE
-	ctx.response.out.write(doc.toxml(XML_ENCODING))
+	responsecard = doc.createElement("response")
+	statuscard = doc.createElement("status")
+	messagecard = doc.createElement("message")
+
+	statustext = doc.createTextNode(response_status)
+	messagetext = doc.createTextNode(response_msg)
+
+	statuscard.appendChild(statustext)
+	messagecard.appendChild(messagetext)
+
+	responsecard.appendChild(statuscard)
+	responsecard.appendChild(messagecard)
+	doc.appendChild(responsecard)
+
+	handle.response.headers[CONTENT_TYPE_HEADER] = XML_CONTENT_TYPE
+	handle.response.out.write(doc.toxml(XML_ENCODING))
+
 # END Exception Handling
 
 # START Helper Methods
@@ -131,12 +150,18 @@ class Avatar(db.Model):
 		transformed_data: manipulated version of original (ie, cropped, etc)
 		thumbnail_data: jpeg format image in thumbnail size
 		thumbnail_props: settings to apply when generating thumbnails
+		max_dimension: the maximum size for storage - all uploaded will be resized if too large
 	"""
 	img_id = db.StringProperty()
 	src_data = db.BlobProperty()
 	transformed_data = db.BlobProperty()
-	thumbnail_data = db.BlobProperty()
-	thumbnail_props = {'width':100,'height':100,'type':'JPEG'}
+	large_thumbnail_data = db.BlobProperty()
+	large_thumbnail_props = {'width':200,'height':200,'type':'PNG'}
+	medium_thumbnail_data = db.BlobProperty()
+	medium_thumbnail_props = {'width':100,'height':100,'type':'PNG'}
+	small_thumbnail_data = db.BlobProperty()
+	small_thumbnail_props = {'width':50,'height':50,'type':'PNG'}
+	max_dimension = 500
 
 class Photo(db.Model):
 	"""
@@ -148,12 +173,16 @@ class Photo(db.Model):
 		transformed_data: manipulated version of original (ie, cropped, etc)
 		thumbnail_data: jpeg format image in thumbnail size
 		thumbnail_props: settings to apply when generating thumbnails
+		max_dimension: the maximum size for storage - all uploaded will be resized if too large
 	"""
 	img_id = db.StringProperty()
 	src_data = db.BlobProperty()
 	transformed_data = db.BlobProperty()
-	thumbnail_data = db.BlobProperty()
-	thumbnail_props = {'width':500,'height':500,'type':'JPEG'}
+	large_thumbnail_data = db.BlobProperty()
+	large_thumbnail_props = {'width':600,'height':600,'type':'JPEG'}
+	small_thumbnail_data = db.BlobProperty()
+	small_thumbnail_props = {'width':50,'height':50,'type':'JPEG'}
+	max_dimension = 800
 
 # END Model Definitions
 
@@ -171,29 +200,92 @@ class Upload(webapp.RequestHandler):
 		POST Args:
 		  api_key: (required) the api key specified in the dictionary defined in the constants
 			img_id: (required) user defined identifier for the specific image
-			image: (required) the image file that it is being uploaded
+
+			One (and only one) of the following is required
+			image: the image file that it is being uploaded (< 1mb)
+				OR
+			blob_key: a key from an existing image being stored in the blobstore api (> 1mb)
 		"""
 		with imageExcpHandler(self):
 			# check authorised
 			if isAuth(self.request.remote_addr,self.request.get('api_key')) == False:
 				raise Forbidden("Invalid Credentials")
 
+			logging.debug('uploading')
+
 			# read data from request
+			user_id = cgi.escape(self.request.get('user_id'))
 			img_id = cgi.escape(self.request.get('img_id'))
-			img_data = self.request.POST.get('image').file.read()
+
+			# choose which path based on provided params
+			args = self.request.arguments()
+			logging.debug(args)
+			logging.debug(img_id)
+
+			if 'image' in args: # path 1 - image < 1mb
+				logging.debug('path 1 - normal upload')
+				img_data = self.request.POST.get('image').file.read()
+				img = images.Image(img_data)
+
+				# check its an accepted image type
+				img_type = imghdr.what('filename', img_data)
+				if img_type != 'png' and img_type != 'jpeg':
+					raise images.NotImageError("Unknown image file type")
+			elif 'blob_key' in args: 	# path 2 - image was > 1mb therefore uploaded to blobstore
+				logging.debug('path 2 - blobstore api')
+				blob_key = self.request.get("blob_key")
+				blob_info = blobstore.get(blob_key)
+				img = images.Image(blob_key=blob_key)
+
+				# check its an accepted image type
+				img_type = blob_info.content_type
+				logging.debug('img_type: '+img_type)
+
+				if img_type == "image/jpeg" or img_type == "image/jpg":
+					img_type = 'jpeg'
+				elif img_type == "image/png" or img_type == "image/x-png":
+					img_type = 'png'
+				else:
+					logging.debug('Image type not recognised, assuming JPEG')
+					img_type = 'jpeg'
+
+			else: # neither path - no image or blob_key specified
+				raise Exception("No image provided/specified")
 
 			# set the image model to use
 			ImageModel = loadModel(model)
 
-			# check its an accepted image type
-			img = images.Image(img_data)
-			img_type = imghdr.what('filename', img_data)
-			if img_type != 'png' and img_type != 'jpeg':
-				raise images.NotImageError("Unknown image file type")
+			# generate source data by resizing to model max dimension prop if the image is larger
+			max_d = ImageModel.max_dimension
+			# blobstore images don't have width or height props, however because they are using the
+			# 	blobstore it is assumed that they are large files which are most likely bigger than the
+			# 	max dimension - seeking any better ideas on approaching this
+ 			if 'blob_key' in args or img.width > max_d or img.height > max_d:
+				logging.debug('resizing to generate src_data (image > max_dimension)')
+				img.resize(width = max_d, height = max_d)
+				src_data = img.execute_transforms(eval('images.' + img_type.upper()))
+			else:
+				logging.debug('directly using img as src_data (image < max_dimension)')
+				img.resize(width = img.width, height = img.height)
+				src_data = img.execute_transforms(eval('images.' + img_type.upper()))
 
-			# generate thumbnail
-			img.resize(ImageModel.thumbnail_props['width'], ImageModel.thumbnail_props['height'])
-			thumbnail_data = img.execute_transforms(eval('images.' + ImageModel.thumbnail_props['type']))
+			# generate thumbnails only if they are part of the model properties
+			props = ImageModel.properties()
+
+			large_thumbnail_data = None
+			if 'large_thumbnail_data' in props:
+				img.resize(ImageModel.large_thumbnail_props['width'], ImageModel.large_thumbnail_props['height'])
+				large_thumbnail_data = img.execute_transforms(eval('images.' + ImageModel.large_thumbnail_props['type']))
+
+			medium_thumbnail_data = None
+			if 'medium_thumbnail_data' in props:
+				img.resize(ImageModel.medium_thumbnail_props['width'], ImageModel.medium_thumbnail_props['height'])
+				medium_thumbnail_data = img.execute_transforms(eval('images.' + ImageModel.medium_thumbnail_props['type']))
+
+			small_thumbnail_data = None
+			if 'small_thumbnail_data' in props:
+				img.resize(ImageModel.small_thumbnail_props['width'], ImageModel.small_thumbnail_props['height'])
+				small_thumbnail_data = img.execute_transforms(eval('images.' + ImageModel.small_thumbnail_props['type']))
 
 			# check if an image with that id already exists and delete it
 			query = ImageModel.all(keys_only=True) # true means retrieve keys only
@@ -203,15 +295,23 @@ class Upload(webapp.RequestHandler):
 				db.delete(results)
 
 			# add new image
+			# note: adding the null thumbnail data values on properties that don't exist on the model
+			# 	does not affect the saving process
 			reference = ImageModel(
 													img_id = img_id,
-													src_data = img_data,
-													thumbnail_data = thumbnail_data
+													user_id = user_id,
+													src_data = src_data,
+													large_thumbnail_data = large_thumbnail_data,
+													medium_thumbnail_data = medium_thumbnail_data,
+													small_thumbnail_data = small_thumbnail_data
 												).put()
 
-			# render the auto generated GAE UUID for the image stored
-			self.response.headers[CONTENT_TYPE_HEADER] = CONTENT_TYPE_TEXT
-			self.response.out.write(reference)
+			# delete blobstore object to prevent being orphaned
+			if 'blob_key' in args:
+				blobstore.delete(blob_key)
+
+			# return the auto generated GAE UUID for the image stored
+			xml_response(self, 'app.success', str(reference))
 
 
 class View(webapp.RequestHandler):
@@ -243,8 +343,12 @@ class View(webapp.RequestHandler):
 				img_data = image.transformed_data
 				if img_data == None:
 					img_data = image.src_data
-			elif display_type == 'thumb':
-				img_data = image.thumbnail_data
+			elif display_type == 'large':
+				img_data = image.large_thumbnail_data
+			elif display_type == 'medium':
+				img_data = image.medium_thumbnail_data
+			elif display_type == 'small':
+				img_data = image.small_thumbnail_data
 			else:
 				raise images.BadRequestError
 
@@ -299,15 +403,30 @@ class Manipulate(webapp.RequestHandler):
 			elif 'crop' == cgi.escape(task.lower()):
 				transformed = self.crop(image.src_data)
 
-			thumbnail = images.Image(transformed)
-			thumbnail.resize(image.thumbnail_props['width'], image.thumbnail_props['height'])
-
 			image.transformed_data = transformed
-			image.thumbnail_data = thumbnail.execute_transforms(eval('images.' + image.thumbnail_props['type']))
+
+			thumbnail = images.Image(transformed)
+
+			props = ImageModel.properties()
+
+			large_thumbnail_data = None
+			if 'large_thumbnail_data' in props:
+				thumbnail.resize(ImageModel.large_thumbnail_props['width'], ImageModel.large_thumbnail_props['height'])
+				image.large_thumbnail_data = thumbnail.execute_transforms(eval('images.' + ImageModel.large_thumbnail_props['type']))
+
+			medium_thumbnail_data = None
+			if 'medium_thumbnail_data' in props:
+				thumbnail.resize(ImageModel.medium_thumbnail_props['width'], ImageModel.medium_thumbnail_props['height'])
+				image.medium_thumbnail_data = thumbnail.execute_transforms(eval('images.' + ImageModel.medium_thumbnail_props['type']))
+
+			small_thumbnail_data = None
+			if 'small_thumbnail_data' in props:
+				thumbnail.resize(ImageModel.small_thumbnail_props['width'], ImageModel.small_thumbnail_props['height'])
+				image.small_thumbnail_data = thumbnail.execute_transforms(eval('images.' + ImageModel.small_thumbnail_props['type']))
+
 			reference = image.put()
 
-			self.response.headers[CONTENT_TYPE_HEADER] = CONTENT_TYPE_TEXT
-			self.response.out.write(reference)
+			xml_response(self, 'app.success', str(reference))
 
 	def resize(self, image):
 		"""
@@ -386,13 +505,43 @@ class Manipulate(webapp.RequestHandler):
 		transformed = img.execute_transforms(output_encoding)
 		return transformed
 
+
+# Gets a url to post a large file to
+class BlobstoreUrl(webapp.RequestHandler):
+	def post(self):
+		# check authorised
+		if isAuth(self.request.remote_addr,self.request.get('api_key')) == False:
+			raise Forbidden("Invalid Credentials")
+
+		upload_url = blobstore.create_upload_url('/blobstore/upload')
+		xml_response(self, 'app.success', upload_url)
+
+# Send a POST request to upload your file
+class BlobstoreUpload(blobstore_handlers.BlobstoreUploadHandler):
+	def post(self):
+		# check authorised
+		#if isAuth(self.request.remote_addr,self.request.get('api_key')) == False:
+		#	raise Forbidden("Invalid Credentials")
+
+		upload_files = self.get_uploads()
+		blob_info = upload_files[0]
+		logging.info(blob_info.key())
+		self.redirect('/blobstore/response/%s' % blob_info.key()) # has to return 301, 302, 303
+
+class BlobstoreResponse(webapp.RequestHandler):
+	def get(self, blob_key):
+		xml_response(self, 'app.success', blob_key)
+
 # END Request Handlers
 
 # START Application
 application = webapp.WSGIApplication([
 																			 ('/upload/(avatar|photo)', Upload),
 																			 ('/(resize|crop)/(avatar|photo)', Manipulate),
-																			 ('/view/(avatar|photo)/(thumb|image|source)/([-\w]+)', View)
+																			 ('/view/(avatar|photo)/(large|medium|small|image|source)/([-\w]+)', View),
+																			 ('/blobstore/url', BlobstoreUrl),
+																			 ('/blobstore/upload', BlobstoreUpload),
+																			 ('/blobstore/response/([^/]+)?', BlobstoreResponse)
 																		 ],debug=True)
 
 def main():
