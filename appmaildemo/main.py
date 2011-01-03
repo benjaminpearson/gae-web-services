@@ -120,9 +120,18 @@ class Send(webapp.RequestHandler):
 			mail_to = str(self.request.POST.get('to'))
 			mail_from = str(self.request.POST.get('from'))
 			mail_subject = str(self.request.POST.get('subject'))
-			mail_body = str(self.request.POST.get('body'))
+			mail_plain = str(self.request.POST.get('plain'))
+			mail_html = str(self.request.POST.get('html'))
 
-			mail.send_mail(mail_from, mail_to, mail_subject, mail_body)
+			message = mail.EmailMessage()
+			message.sender = mail_from
+			message.to = mail_to
+			message.subject = mail_subject
+			message.body = mail_plain
+			if mail_html != None and mail_html != "":
+				message.html = mail_html
+
+			message.send()
 
 			self.response.headers[CONTENT_TYPE_HEADER] = CONTENT_TYPE_TEXT
 			self.response.out.write("Success")

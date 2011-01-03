@@ -1,6 +1,13 @@
 RELEASE HISTORY
 ------------------------------------------------------------------------------------------------------------
 
+Update - Released Jan 4th 2011
+------------------------------------------------------
+- AppMail: Added support for HTML emails with plain text fallback. Instead of passing "body" param, you now pass "plain" and optionally "html" POST params.
+
+AppImage Update: On December 2nd, the GAE team released a significant update that now allows for images upto 32MB to be sent to your GAE apps. This basically renders AppImage no longer necessary. The code was originally written as a work around for the old 1MB limit. See Google's blog post about the newest updates to GAE: http://googleappengine.blogspot.com/2010/12/happy-holidays-from-app-engine-team-140.html
+
+
 AppImage Version 2.0 - Released Feb 16th 2010
 ------------------------------------------------------
 - GAE: Includes support for working with files larger than 1mb (using GAE Blobstore - Billing enabled accounts only)
